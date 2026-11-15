@@ -1,0 +1,163 @@
+# Example: publish a MkDocs project with the Documentation Publisher.
+#
+# Nothing in this file is specific to Keycloak. All repository names are
+# placeholders under `example-org`; replace them with your own, then run:
+#   python -m publisher_engine.cli validate-config --config examples/mkdocs/publisher.yml
+#
+# Contract between the documentation build and the Publisher: see the section
+# "Link marker contract" in docs/LINKS-AND-COMMUNICATION.md.
+schema_version: 2
+
+project:
+  id: mkdocs-example
+  title: MkDocs Example
+  description: Documentation built with MkDocs and published by the Documentation Publisher
+  locale: en
+  timezone: UTC
+  license: ""
+  copyright: ""
+  logo: ""
+  favicon: ""
+  homepage_url: ""
+  repository_url: ""
+  maintainers: []
+
+# Repository that contains the engine, this configuration and the workflow.
+publisher:
+  clone_url: https://github.com/example-org/documentation-publisher.git
+  ref: main
+  clone_timeout_seconds: 1800
+  allowed_hosts: [github.com]
+  auth:
+    mode: none
+
+# Repository that contains mkdocs.yml and the Markdown files.
+sources:
+  - id: mkdocs-source
+    vcs:
+      provider: git
+      clone_url: https://github.com/example-org/mkdocs-sample.git
+      web_url: https://github.com/example-org/mkdocs-sample
+      default_ref: main
+      ref_type: branch
+      depth: 1
+      clone_timeout_seconds: 1800
+      submodules: false
+      lfs: false
+      allowed_hosts: [github.com]
+      auth:
+        mode: none
+    root: .
+    integration:
+      mode: git_subtree
+      prefix: .publisher-sources/mkdocs-source
+      squash: true
+      history: shallow
+
+# Where authors edit the files. It may differ from the build source.
+authoring_targets:
+  - id: mkdocs-authoring
+    provider_label: github
+    web_url: https://github.com/example-org/mkdocs-sample
+    repository: example-org/mkdocs-sample
+    ref: main
+    ref_type: branch
+    source_id: mkdocs-source
+    edit_url_template: "{web_url}/edit/{ref}/{path}"
+    mapping:
+      source_prefix: docs
+      target_prefix: docs
+      rules: []
+    unresolved_policy: fail
+
+# Any command can be the build. The task is plain argv, never a shell script.
+build_tasks:
+  - id: build-mkdocs
+    source_id: mkdocs-source
+    adapter: command
+    working_directory: .
+    working_directory_scope: source
+    argv: [python, -m, mkdocs, build, --strict, --clean, --site-dir, build/site]
+    # Public URL of the component: site.base_url + site.base_path + components_root/version/route.
+    environment:
+      SITE_URL: https://example-org.github.io/mkdocs-sample-docs/docs/current/guide/
+    pass_environment: [PATH, HOME, LANG]
+    secret_environment: []
+    depends_on: []
+    timeout_seconds: 900
+    retry: 0
+    outputs: [build/site]
+
+components:
+  - id: guide
+    title: Guide
+    description: MkDocs documentation
+    source_id: mkdocs-source
+    route: guide
+    tasks: [build-mkdocs]
+    output_path: build/site
+    output_kind: directory
+    index_file: index.html
+    required_output_files: [index.html]
+    fallback:
+      mode: error
+    dependencies: []
+    version: current
+    locale: en
+
+site:
+  base_url: https://example-org.github.io
+  base_path: /mkdocs-sample-docs
+  output_directory: _site
+  components_root: docs
+  version: current
+  default_version: current
+  default_locale: en
+  default_component: guide
+  generate_index: true
+  robots: noindex
+  locales: [en]
+  versions: [current]
+
+# Edit links come from the `publisher-link-edit` markers emitted by the hook.
+links:
+  edit:
+    mode: override
+    target_id: mkdocs-authoring
+    unresolved_policy: fail
+    require_markers: true
+
+# Issue links come from the `publisher-link-issues` markers.
+communication:
+  issues:
+    mode: override
+    url_template: "https://github.com/example-org/mkdocs-sample/issues/new?title={page_title}"
+
+validation:
+  require_no_symlinks: true
+  validate_local_links: true
+  validate_fragments: true
+  validate_css_assets: true
+  validate_edit_links: true
+  validate_communication_links: true
+  unresolved_edit_policy: fail
+  require_build_manifest: true
+  max_site_bytes: 200000000
+  max_files: 50000
+
+workspace:
+  temp_root: .publisher-tmp
+  git_user_name: Documentation Publisher (temporary)
+  git_user_email: documentation-publisher@example.invalid
+  cleanup_on_success: true
+  cleanup_on_failure: true
+  fail_on_cleanup_error: true
+
+publishing_targets:
+  - id: ci-artifact
+    adapter: artifact
+    output_path: _site
+publishing:
+  target_id: ci-artifact
+  artifact_name: documentation-site
+  retention_days: 1
