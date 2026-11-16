@@ -734,8 +734,10 @@ def generate_gitlab_ci_workflow(config: dict[str, Any], *, profiles: list[str] |
               f"  timeout: {_yaml_string(f'{build_timeout} minutes')}", "  variables:",
               f"    CONFIG_FILE: {_yaml_string(str(config_rel))}", '    SELECTED_COMPONENTS: "all"']
     lines.extend(extra_env_lines)
+    # Defined outside the f-string: Python 3.11 does not allow backslashes inside f-string expressions.
+    subtree_check = "git subtree -h >/tmp/git-subtree-help 2>&1 || grep -qi '^usage: git subtree' /tmp/git-subtree-help"
     lines += ["  script:", f"    - {_yaml_string(version_guard)}",
-              f"    - {_yaml_string('git subtree -h >/tmp/git-subtree-help 2>&1 || grep -qi \'^usage: git subtree\' /tmp/git-subtree-help')}"]
+              f"    - {_yaml_string(subtree_check)}"]
     if any(source.get("vcs", {}).get("lfs", False) for source in config.get("sources", [])):
         lines.append(f"    - {_yaml_string('git lfs version')}")
     lines.append(f"    - {_yaml_string('env -u CI_JOB_TOKEN -u CI_REPOSITORY_URL -u CI_REGISTRY_PASSWORD -u CI_DEPLOY_PASSWORD python -m pip install --disable-pip-version-check .')}")
@@ -754,12 +756,14 @@ def generate_gitlab_ci_workflow(config: dict[str, Any], *, profiles: list[str] |
               f"      - {_yaml_string(artifact_path)}", ""]
 
     if not dry_run:
+        # Defined outside the f-string: Python 3.11 does not allow reusing the f-string's quote character inside it.
+        deploy_rule = '$CI_COMMIT_BRANCH == ' + json.dumps(deploy_branch) + ' && $CI_PIPELINE_SOURCE != "merge_request_event"'
         lines += ["deploy-pages:", "  stage: deploy", "  needs:", "    - job: build-site", "      artifacts: true",
                   f"  timeout: {_yaml_string(f'{deploy_timeout} minutes')}", f"  resource_group: {_yaml_string(resource_group)}",
                   "  script:", f"    - {_yaml_string('test -s ' + shlex.quote(artifact_path + '/index.html'))}",
                   "  pages:", f"    publish: {_yaml_string(artifact_path)}", "  artifacts:", "    paths:",
                   f"      - {_yaml_string(artifact_path)}", "  environment:", f"    name: {_yaml_string(environment_name)}",
                   "  rules:",
-                  f"    - if: {_gitlab_yaml_if('$CI_COMMIT_BRANCH == ' + json.dumps(deploy_branch) + ' && $CI_PIPELINE_SOURCE != "merge_request_event"')}",
+                  f"    - if: {_gitlab_yaml_if(deploy_rule)}",
                   "      when: on_success", "    - when: never", ""]
     return "\n".join(lines)
